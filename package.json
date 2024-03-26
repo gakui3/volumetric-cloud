@@ -1,0 +1,29 @@
+{
+  "name": "vertex_animation",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "build": "vite build",
+    "watch": "vite dev --host & npm run format-watch",
+    "format-watch": "onchange '**/*.{glsl,vert,frag}' -- npx prettier --write {{changed}}"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@babylonjs/gui": "^6.47.0",
+    "@vitejs/plugin-basic-ssl": "^1.1.0",
+    "vite": "^5.1.6"
+  },
+  "devDependencies": {
+    "@babylonjs/core": "^6.47.0",
+    "@babylonjs/materials": "^6.47.0",
+    "eslint": "^8.57.0",
+    "eslint-config-standard": "^17.1.0",
+    "eslint-plugin-import": "^2.29.1",
+    "eslint-plugin-n": "^16.6.2",
+    "eslint-plugin-promise": "^6.1.1",
+    "onchange": "^7.1.0",
+    "prettier-plugin-glsl": "^0.1.3"
+  }
+}
