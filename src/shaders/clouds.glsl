@@ -234,7 +234,6 @@ void main(void ) {
   float shape_noise = shape_sample.g * 0.625 + shape_sample.b * 0.25 + shape_sample.a * 0.125;
   shape_noise = -(1.0 - shape_noise);
   shape_noise = remap(shape_sample.r, shape_noise, 1.0, 0.0, 1.0);
-  //   c = vec4(shape_noise, shape_noise, shape_noise, 1.0);
 
   //rayの計算
   vec2 ndc = vUV.xy * 2.0 - 1.0;
@@ -249,10 +248,10 @@ void main(void ) {
   vec3 rayDirection = normalize(worldSpace - cameraPosition);
   vec3 rayOrigin = cameraPosition;
 
-  bool flag = intersectRayWithAABB(rayOrigin, rayDirection, areaMin, areaMax);
-  if (flag) {
-    c = vec4(1.0, 0.0, 0.0, 1.0);
-  }
+  //   bool flag = intersectRayWithAABB(rayOrigin, rayDirection, areaMin, areaMax);
+  //   if (flag) {
+  //     c = vec4(1.0, 0.0, 0.0, 1.0);
+  //   }
 
   gl_FragColor = c;
 }
