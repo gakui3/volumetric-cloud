@@ -1,11 +1,14 @@
-#version 300 es
-
-precision highp float;
-
-in vec2 vUv;
-out vec4 fragColor;
-uniform sampler2D textureSampler;
-uniform float time;
+//
+// Description : Array and textureless GLSL 2D/3D/4D simplex
+//               noise functions.
+//      Author : Ian McEwan, Ashima Arts.
+//  Maintainer : stegu
+//     Lastmod : 20201014 (stegu)
+//     License : Copyright (C) 2011 Ashima Arts. All rights reserved.
+//               Distributed under the MIT License. See LICENSE file.
+//               https://github.com/ashima/webgl-noise
+//               https://github.com/stegu/webgl-noise
+//
 
 vec3 mod289(vec3 x) {
   return x - floor(x * (1.0 / 289.0)) * 289.0;
@@ -23,7 +26,7 @@ vec4 taylorInvSqrt(vec4 r) {
   return 1.79284291400159 - 0.85373472095314 * r;
 }
 
-float snoise(vec3 v) {
+float snoise(vec3 v, out vec3 gradient) {
   const vec2 C = vec2(1.0 / 6.0, 1.0 / 3.0);
   const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
 
@@ -93,16 +96,15 @@ float snoise(vec3 v) {
 
   // Mix final noise value
   vec4 m = max(0.5 - vec4(dot(x0, x0), dot(x1, x1), dot(x2, x2), dot(x3, x3)), 0.0);
-  m = m * m;
-  return 105.0 * dot(m * m, vec4(dot(p0, x0), dot(p1, x1), dot(p2, x2), dot(p3, x3)));
-}
+  vec4 m2 = m * m;
+  vec4 m4 = m2 * m2;
+  vec4 pdotx = vec4(dot(p0, x0), dot(p1, x1), dot(p2, x2), dot(p3, x3));
 
-void main(void ) {
-  vec2 uv = vec2(1.0 - vUv.x, 1.0 - vUv.y);
-  // fragColor = texture(textureSampler, uv);
-  float r = snoise(vec3(uv * 1.0, 10.0));
-  float g = snoise(vec3(uv * 2.0, 20.0));
-  float b = snoise(vec3(uv * 3.0, 30.0));
-  float a = snoise(vec3(uv * 4.0, 40.0));
-  fragColor = vec4(r, g, b, a);
+  // Determine noise gradient
+  vec4 temp = m2 * m * pdotx;
+  gradient = -8.0 * (temp.x * x0 + temp.y * x1 + temp.z * x2 + temp.w * x3);
+  gradient += m4.x * p0 + m4.y * p1 + m4.z * p2 + m4.w * p3;
+  gradient *= 105.0;
+
+  return 105.0 * dot(m4, pdotx);
 }
