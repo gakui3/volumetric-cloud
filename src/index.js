@@ -11,8 +11,11 @@ import testimg from '/testimg.png';
 const canvas = document.getElementById('renderCanvas');
 const engine = new BABYLON.Engine(canvas);
 const scene = new BABYLON.Scene(engine);
-const camera = new BABYLON.FreeCamera('camera1', new BABYLON.Vector3(0, 5, -10), scene);
-camera.setTarget(BABYLON.Vector3.Zero());
+// const camera = new BABYLON.FreeCamera('camera1', new BABYLON.Vector3(0, 0, -10), scene);
+// camera.setTarget(BABYLON.Vector3.Zero());
+
+const camera = new BABYLON.ArcRotateCamera('Camera', 0, 0, 10, new BABYLON.Vector3(0, 0, 0), scene);
+camera.setPosition(new BABYLON.Vector3(0, 0, -10));
 
 camera.attachControl(canvas, true);
 
@@ -22,7 +25,7 @@ light.intensity = 1.0;
 // 元のテクスチャ
 const src = new BABYLON.Texture(testimg, scene);
 // 出力先のテクスチャ
-const dest = new BABYLON.RenderTargetTexture('output', 1024, scene);
+const weatherMap = new BABYLON.RenderTargetTexture('weatherMap', 1024, scene);
 
 const quadScene = new BABYLON.Scene(engine);
 const quadCamera = new BABYLON.FreeCamera('quadCamera', new BABYLON.Vector3(0, 0, -1), quadScene);
@@ -45,28 +48,35 @@ var shaderMaterial = new BABYLON.ShaderMaterial(
 shaderMaterial.setTexture('textureSampler', src);
 quad.material = shaderMaterial;
 
-dest.renderList.push(quad);
-quadScene.customRenderTargets.push(dest);
+weatherMap.renderList.push(quad);
+quadScene.customRenderTargets.push(weatherMap);
 
 // 球体を作成してマテリアルを適用し、レンダーターゲットテクスチャをテクスチャとして使用
 var sphere = BABYLON.MeshBuilder.CreateSphere('sphere', { diameter: 2, segments: 32 }, scene);
-sphere.position.y = 1;
 
 var sphereMaterial = new BABYLON.StandardMaterial('sphereMat', scene);
-sphereMaterial.diffuseTexture = dest;
+sphereMaterial.diffuseTexture = weatherMap;
 sphere.material = sphereMaterial;
 
 BABYLON.Effect.ShadersStore['cloudsFragmentShader'] = clouds;
 var cloudsPP = new BABYLON.PostProcess(
   'Clouds',
   'clouds',
-  ['destSampler'],
-  ['destSampler'],
+  ['weatherMap', 'time', 'screenSize', 'cameraMatrix', 'projectionMatrix', 'cameraPosition'],
+  ['weatherMap'],
   1.0,
   camera
 );
 cloudsPP.onApply = function (effect) {
-  effect.setTexture('destSampler', dest);
+  effect.setTexture('weatherMap', weatherMap);
+  effect.setFloat('time', time);
+  effect.setVector2(
+    'screenSize',
+    new BABYLON.Vector2(engine.getRenderWidth(), engine.getRenderHeight())
+  );
+  effect.setVector3('cameraPosition', camera.position);
+  effect.setMatrix('cameraMatrix', camera.getViewMatrix());
+  effect.setMatrix('projectionMatrix', camera.getProjectionMatrix());
 };
 
 BABYLON.Effect.ShadersStore['debugFragmentShader'] = debug;
@@ -80,7 +90,7 @@ var debugPP = new BABYLON.PostProcess(
 );
 
 debugPP.onApply = function (effect) {
-  effect.setTexture('destSampler', dest);
+  effect.setTexture('destSampler', weatherMap);
 };
 
 let flag = false;
@@ -93,9 +103,9 @@ src.onLoadObservable.add(() => {
 // Render every frame
 engine.runRenderLoop(() => {
   if (flag) {
-    time += engine.getDeltaTime() * 0.001;
     shaderMaterial.setFloat('time', time);
     quadScene.render();
   }
+  time += engine.getDeltaTime() * 0.001;
   scene.render();
 });
