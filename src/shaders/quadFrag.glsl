@@ -151,10 +151,10 @@ float fbm(vec2 st) {
 }
 
 void main(void ) {
-  vec2 ruv = vec2(vUv.x, vUv.y) * 30.0;
-  vec2 guv = vec2(vUv.x, vUv.y) * 6.0;
+  vec2 ruv = vec2(vUv.x, vUv.y) * 3.0;
+  vec2 guv = vec2(vUv.x, vUv.y) * 1.0;
   // fragColor = texture(textureSampler, uv);
-  float r = pow(1.0 - cellular(ruv).x, 2.0);
+  float r = pow(1.0 - cellular(ruv).x, 1.0);
   float g = fbm(guv);
   float b = 1.0;
   float a = 0.5;

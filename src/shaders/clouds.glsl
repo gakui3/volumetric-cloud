@@ -12,7 +12,11 @@ uniform vec3 cameraPosition;
 uniform mat4x4 cameraMatrix;
 uniform mat4x4 projectionMatrix;
 
-const float divisions = 8.0;
+const float stepSize = 0.01;
+const vec3 area_center = vec3(0.0, 0.0, 0.0);
+const vec3 area_size = vec3(0.5, 0.5, 0.5);
+const float g_c = 0.75; //
+const float g_d = 1.0; //雲のグローバルな不透明度
 
 vec4 mod289(vec4 x) {
   return x - floor(x * (1.0 / 289.0)) * 289.0;
@@ -205,12 +209,74 @@ bool intersectRayWithAABB(vec3 rayOrigin, vec3 rayDirection, vec3 aabbMin, vec3 
   return tMax >= tMin && tMax >= 0.0;
 }
 
-void main(void ) {
-  vec3 area_center = vec3(0.0, 0.0, 0.0);
-  vec3 area_size = vec3(0.5, 0.25, 0.5);
+float calculateDensity(vec3 position, mat4 inverseCloudsMatrix) {
+  vec3 localPosition = (inverseCloudsMatrix * vec4(position, 1.0)).xyz;
+  vec3 centeredPosition = localPosition - area_center;
+  vec3 normalizedPosition = (centeredPosition + area_size * 0.5) / area_size;
 
+  if (
+    normalizedPosition.x < 0.0 ||
+    normalizedPosition.x > 1.0 ||
+    normalizedPosition.y < 0.0 ||
+    normalizedPosition.y > 1.0 ||
+    normalizedPosition.z < 0.0 ||
+    normalizedPosition.z > 1.0
+  ) {
+    return 0.0;
+  }
+
+  //正規化したpositionの高さを取得
+  float p_h = normalizedPosition.y;
+
+  vec2 weatherMapCoords = normalizedPosition.xz;
+  //   float v = snoise(vec4(weatherMapCoords * 2.0, 1.0, 1.0));
+  //   vec4 wc = texture2D(weatherMap, weatherMapCoords);
+
+  // Weather Map Coverage(雲の生成範囲)を計算
+  //   float WM_c = max(wc.x, clamp(g_c - 0.5, 0.0, 1.0) * wc.y * 2.0);
+
+  //雲の下側の形状を計算。下側の値をremapで0.0から1.0に持ち上げている
+  //   float SR_b = clamp(remap(p_h, 0.0, 0.07, 0.0, 1.0), 0.0, 1.0);
+  //   float SR_t = clamp(remap(p_h, wc.z * 0.2, wc.z, 1.0, 0.0), 0.0, 1.0);
+  //Shape-Altering 雲の形状を高さによって変化させる関数
+  //下部を大きく、上部を小さくするイメージ
+  //   float SA = SR_b * SR_t;
+
+  //下部の密度(不透明度)を計算。下部の値をremapで0.0から1.0に持ち上げている
+  //   float DR_b = p_h * clamp(remap(p_h, 0.0, 0.15, 0.0, 1.0), 0.0, 1.0);
+  //上部の密度(不透明度)を計算。上部の値をremapで1.0から0.0に持ち下げている
+  //   float DR_t = clamp(remap(p_h, 0.9, 1.0, 1.0, 0.0), 0.0, 1.0);
+  //Density-Altering 雲の密度を高さによって変化させる関数
+  //下部の密度を大きく、上部の密度を小さくするイメージ
+  //   float DA = g_d * DR_b * DR_t * wc.w * 2.0;
+  //   float SN = clamp(remap(shape_noise * SA, 1.0 - g_c * WM_c, 1.0, 0.0, 1.0), 0.0, 1.0) * DA;
+
+  //   float d = clamp(remap(SN_nd, DN_mod, 0.0, 0.0, 1.0)) * DA;
+  float scale = 2.0;
+  vec4 coord = vec4(
+    weatherMapCoords.x * scale,
+    normalizedPosition.y * scale,
+    weatherMapCoords.y * scale,
+    time * 0.1
+  );
+  float perlin = clamp(snoise(coord), 0.0, 1.0);
+
+  return perlin; //SN;
+  //   return WM_c;
+}
+
+void main(void ) {
   vec3 areaMin = area_center - vec3(area_size.x, area_size.y, area_size.z) * 0.5;
   vec3 areaMax = area_center + vec3(area_size.x, area_size.y, area_size.z) * 0.5;
+
+  mat4 cloudsMatrix = mat4(
+    vec4(area_size.x, 0.0, 0.0, 0.0),
+    vec4(0.0, area_size.y, 0.0, 0.0),
+    vec4(0.0, 0.0, area_size.z, 0.0),
+    vec4(area_center, 1.0)
+  );
+
+  mat4 inverseCloudsMatrix = inverse(cloudsMatrix);
 
   vec4 c = texture2D(textureSampler, vUV);
 
@@ -219,21 +285,21 @@ void main(void ) {
   float scaleHigh = 4.0;
   float scaleBest = 8.0;
 
-  vec4 coord = vec4(vUV.x * scale, vUV.y * scale, 1.0 * scale, t);
-  vec4 coordHigh = vec4(vUV.x * scaleHigh, vUV.y * scaleHigh, 1.0 * scaleHigh, t);
-  vec4 coordBest = vec4(vUV.x * scaleBest, vUV.y * scaleBest, 1.0 * scaleBest, t);
-  float celler = cellular(coord);
-  float perlin = snoise(coord);
+  //   vec4 coord = vec4(vUV.x * scale, vUV.y * scale, 1.0 * scale, t);
+  //   vec4 coordHigh = vec4(vUV.x * scaleHigh, vUV.y * scaleHigh, 1.0 * scaleHigh, t);
+  //   vec4 coordBest = vec4(vUV.x * scaleBest, vUV.y * scaleBest, 1.0 * scaleBest, t);
+  //   float celler = cellular(coord);
+  //   float perlin = snoise(coord);
 
-  float r = snoise(coord);
-  float g = cellular(coord);
-  float b = cellular(coordHigh);
-  float a = cellular(coordBest);
+  //   float r = snoise(coord);
+  //   float g = cellular(coord);
+  //   float b = cellular(coordHigh);
+  //   float a = cellular(coordBest);
 
-  vec4 shape_sample = vec4(r, g, b, a);
-  float shape_noise = shape_sample.g * 0.625 + shape_sample.b * 0.25 + shape_sample.a * 0.125;
-  shape_noise = -(1.0 - shape_noise);
-  shape_noise = remap(shape_sample.r, shape_noise, 1.0, 0.0, 1.0);
+  //   vec4 shape_sample = vec4(r, g, b, a);
+  //   float shape_noise = shape_sample.g * 0.625 + shape_sample.b * 0.25 + shape_sample.a * 0.125;
+  //   shape_noise = -(1.0 - shape_noise);
+  //   shape_noise = remap(shape_sample.r, shape_noise, 1.0, 0.0, 1.0);
 
   //rayの計算
   vec2 ndc = vUV.xy * 2.0 - 1.0;
@@ -248,10 +314,23 @@ void main(void ) {
   vec3 rayDirection = normalize(worldSpace - cameraPosition);
   vec3 rayOrigin = cameraPosition;
 
-  //   bool flag = intersectRayWithAABB(rayOrigin, rayDirection, areaMin, areaMax);
-  //   if (flag) {
-  //     c = vec4(1.0, 0.0, 0.0, 1.0);
-  //   }
+  bool flag = intersectRayWithAABB(rayOrigin, rayDirection, areaMin, areaMax);
+  if (flag) {
+    float opacity = 0.0;
+    for (float t = 0.0; t < 20.0; t += stepSize) {
+      vec3 currentPos = rayOrigin + t * rayDirection;
 
+      float density = calculateDensity(currentPos, inverseCloudsMatrix);
+      if (density == 0.0) continue;
+
+      opacity += density * stepSize;
+      vec3 stepColor = vec3(density);
+      vec3 blendedColor = stepColor * stepSize * 3.0; // * c.xyz * opacity;
+      c.xyz += blendedColor;
+      if (opacity >= 1.0) break;
+    }
+  }
+
+  //   c.w = 1.0;
   gl_FragColor = c;
 }

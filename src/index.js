@@ -1,9 +1,14 @@
 import * as BABYLON from '@babylonjs/core';
+import Stats from 'stats-js';
 
 import quadVert from './shaders/quadVert.glsl?raw';
 import quadFrag from './shaders/quadFrag.glsl?raw';
 import debug from './shaders/debug.glsl?raw';
 import clouds from './shaders/clouds.glsl?raw';
+
+var stats = new Stats();
+stats.showPanel(0); // 0: fps, 1: ms, 2: mb, 3+: custom
+document.body.appendChild(stats.dom);
 
 //publicフォルダに配置した画像を読み込む
 import testimg from '/testimg.png';
@@ -52,11 +57,10 @@ weatherMap.renderList.push(quad);
 quadScene.customRenderTargets.push(weatherMap);
 
 // 球体を作成してマテリアルを適用し、レンダーターゲットテクスチャをテクスチャとして使用
-var sphere = BABYLON.MeshBuilder.CreateSphere('sphere', { diameter: 2, segments: 32 }, scene);
-
-var sphereMaterial = new BABYLON.StandardMaterial('sphereMat', scene);
-sphereMaterial.diffuseTexture = weatherMap;
-sphere.material = sphereMaterial;
+// var sphere = BABYLON.MeshBuilder.CreateSphere('sphere', { diameter: 2, segments: 32 }, scene);
+// var sphereMaterial = new BABYLON.StandardMaterial('sphereMat', scene);
+// sphereMaterial.diffuseTexture = weatherMap;
+// sphere.material = sphereMaterial;
 
 BABYLON.Effect.ShadersStore['cloudsFragmentShader'] = clouds;
 var cloudsPP = new BABYLON.PostProcess(
@@ -102,10 +106,12 @@ src.onLoadObservable.add(() => {
 
 // Render every frame
 engine.runRenderLoop(() => {
+  stats.begin();
   if (flag) {
     shaderMaterial.setFloat('time', time);
     quadScene.render();
   }
   time += engine.getDeltaTime() * 0.001;
   scene.render();
+  stats.end();
 });
