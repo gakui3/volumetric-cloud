@@ -6,12 +6,12 @@ import quadFrag from './shaders/quadFrag.glsl?raw';
 import debug from './shaders/debug.glsl?raw';
 import clouds from './shaders/clouds.glsl?raw';
 
-var stats = new Stats();
+// publicフォルダに配置した画像を読み込む
+import testimg from '/testimg.png';
+
+const stats = new Stats();
 stats.showPanel(0); // 0: fps, 1: ms, 2: mb, 3+: custom
 document.body.appendChild(stats.dom);
-
-//publicフォルダに配置した画像を読み込む
-import testimg from '/testimg.png';
 
 const canvas = document.getElementById('renderCanvas');
 const engine = new BABYLON.Engine(canvas);
@@ -20,7 +20,7 @@ const scene = new BABYLON.Scene(engine);
 // camera.setTarget(BABYLON.Vector3.Zero());
 
 const camera = new BABYLON.ArcRotateCamera('Camera', 0, 0, 10, new BABYLON.Vector3(0, 0, 0), scene);
-camera.setPosition(new BABYLON.Vector3(0, 0, -10));
+camera.setPosition(new BABYLON.Vector3(0, 0, 10));
 
 camera.attachControl(canvas, true);
 
@@ -37,8 +37,8 @@ const quadCamera = new BABYLON.FreeCamera('quadCamera', new BABYLON.Vector3(0, 0
 
 let time = 0;
 
-var quad = BABYLON.MeshBuilder.CreatePlane('quad', { size: 2 }, quadScene);
-var shaderMaterial = new BABYLON.ShaderMaterial(
+const quad = BABYLON.MeshBuilder.CreatePlane('quad', { size: 2 }, quadScene);
+const shaderMaterial = new BABYLON.ShaderMaterial(
   'shaderMaterial',
   quadScene,
   {
@@ -62,8 +62,8 @@ quadScene.customRenderTargets.push(weatherMap);
 // sphereMaterial.diffuseTexture = weatherMap;
 // sphere.material = sphereMaterial;
 
-BABYLON.Effect.ShadersStore['cloudsFragmentShader'] = clouds;
-var cloudsPP = new BABYLON.PostProcess(
+BABYLON.Effect.ShadersStore.cloudsFragmentShader = clouds;
+const cloudsPP = new BABYLON.PostProcess(
   'Clouds',
   'clouds',
   ['weatherMap', 'time', 'screenSize', 'cameraMatrix', 'projectionMatrix', 'cameraPosition'],
@@ -83,8 +83,8 @@ cloudsPP.onApply = function (effect) {
   effect.setMatrix('projectionMatrix', camera.getProjectionMatrix());
 };
 
-BABYLON.Effect.ShadersStore['debugFragmentShader'] = debug;
-var debugPP = new BABYLON.PostProcess(
+BABYLON.Effect.ShadersStore.debugFragmentShader = debug;
+const debugPP = new BABYLON.PostProcess(
   'Debug',
   'debug',
   ['destSampler'],

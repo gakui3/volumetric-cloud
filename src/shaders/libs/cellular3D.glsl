@@ -21,13 +21,13 @@ vec3 permute(vec3 x) {
   return mod289((34.0 * x + 10.0) * x);
 }
 
-// Cellular noise, returning F1 and F2 in a vec2.
-// 3x3x3 search region for good F2 everywhere, but a lot
-// slower than the 2x2x2 version.
-// The code below is a bit scary even to its author,
-// but it has at least half decent performance on a
-// modern GPU. In any case, it beats any software
-// implementation of Worley noise hands down.
+// vec2でF1およびF2を返すセルラーノイズ。
+// 3x3x3どこでも良いf2を検索しますが、たくさん
+// 2x2x2バージョンよりも遅い。
+//以下のコードは著者にとっても少し怖いです、
+//しかし、それは少なくとも半分のまともなパフォーマンスを持っています
+//現代のGPU。いずれにせよ、それはあらゆるソフトウェアを打ち負かします
+// Worley Noiseの実装。
 
 vec2 cellular(vec3 P) {
   #define K (0.142857142857) // 1/7

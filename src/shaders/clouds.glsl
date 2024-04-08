@@ -12,11 +12,15 @@ uniform vec3 cameraPosition;
 uniform mat4x4 cameraMatrix;
 uniform mat4x4 projectionMatrix;
 
-const float stepSize = 0.01;
+// const float stepSize = 0.01;
 const vec3 area_center = vec3(0.0, 0.0, 0.0);
-const vec3 area_size = vec3(0.5, 0.5, 0.5);
+const vec3 area_size = vec3(1.0, 0.5, 1.0);
 const float g_c = 0.75; //
 const float g_d = 1.0; //雲のグローバルな不透明度
+const float heightMapFactor = 0.95;
+const vec3 noiseWeights = vec3(10.5, 7.25, 2.125);
+const vec3 detailWeights = vec3(0.99, 0.21, 0.15);
+const float volumeOffset = 2.5;
 
 vec4 mod289(vec4 x) {
   return x - floor(x * (1.0 / 289.0)) * 289.0;
@@ -26,8 +30,21 @@ float mod289(float x) {
   return x - floor(x * (1.0 / 289.0)) * 289.0;
 }
 
+vec3 mod289(vec3 x) {
+  return x - floor(x * (1.0 / 289.0)) * 289.0;
+}
+
+// Modulo 7 without a division
+vec4 mod7(vec4 x) {
+  return x - floor(x * (1.0 / 7.0)) * 7.0;
+}
+
 vec4 permute(vec4 x) {
   return mod289((x * 34.0 + 10.0) * x);
+}
+
+vec3 permute(vec3 x) {
+  return mod289((34.0 * x + 10.0) * x);
 }
 
 float permute(float x) {
@@ -141,6 +158,19 @@ float snoise(vec4 v) {
 
 }
 
+float snoiseFbm(vec4 v, int octaves) {
+  float f = 0.0;
+  float amplitude = 0.5;
+  float frequency = 1.0;
+
+  for (int i = 0; i < octaves; i++) {
+    f += amplitude * snoise(frequency * v);
+    frequency *= 2.0;
+    amplitude *= 0.5;
+  }
+
+  return f;
+}
 //
 // Hash function by Dave_Hoskins
 vec4 hash44(vec4 p4) {
@@ -149,46 +179,70 @@ vec4 hash44(vec4 p4) {
   return fract((p4.xxyz + p4.yzzw) * p4.zywx);
 }
 
-// 4D Cellular (Worley) noise function
-float cellular(vec4 p) {
-  const float K1 = 0.142857142857; // 1/7
-  const float K2 = 0.428571428571; // 3/7
-  const float K3 = 0.714285714286; // 5/7
+vec2 cellular2x2x2(vec3 P) {
+  #define K (0.142857142857) // 1/7
+  #define Ko (0.428571428571) // 1/2-K/2
+  #define K2 (0.020408163265306) // 1/(7*7)
+  #define Kz (0.166666666667) // 1/6
+  #define Kzo (0.416666666667) // 1/2-1/6*2
+  #define jitter (0.8) // smaller jitter gives less errors in F2
+  vec3 Pi = mod289(floor(P));
+  vec3 Pf = fract(P);
+  vec4 Pfx = Pf.x + vec4(0.0, -1.0, 0.0, -1.0);
+  vec4 Pfy = Pf.y + vec4(0.0, 0.0, -1.0, -1.0);
+  vec4 p = permute(Pi.x + vec4(0.0, 1.0, 0.0, 1.0));
+  p = permute(p + Pi.y + vec4(0.0, 0.0, 1.0, 1.0));
+  vec4 p1 = permute(p + Pi.z); // z+0
+  vec4 p2 = permute(p + Pi.z + vec4(1.0)); // z+1
+  vec4 ox1 = fract(p1 * K) - Ko;
+  vec4 oy1 = mod7(floor(p1 * K)) * K - Ko;
+  vec4 oz1 = floor(p1 * K2) * Kz - Kzo; // p1 < 289 guaranteed
+  vec4 ox2 = fract(p2 * K) - Ko;
+  vec4 oy2 = mod7(floor(p2 * K)) * K - Ko;
+  vec4 oz2 = floor(p2 * K2) * Kz - Kzo;
+  vec4 dx1 = Pfx + jitter * ox1;
+  vec4 dy1 = Pfy + jitter * oy1;
+  vec4 dz1 = Pf.z + jitter * oz1;
+  vec4 dx2 = Pfx + jitter * ox2;
+  vec4 dy2 = Pfy + jitter * oy2;
+  vec4 dz2 = Pf.z - 1.0 + jitter * oz2;
+  vec4 d1 = dx1 * dx1 + dy1 * dy1 + dz1 * dz1; // z+0
+  vec4 d2 = dx2 * dx2 + dy2 * dy2 + dz2 * dz2; // z+1
 
-  vec4 Pi = floor(p);
-  vec4 Pf = fract(p);
-  float F1 = 1e6; // Initialize F1 and F2 to large values
-  float F2 = 1e6;
+  // Sort out the two smallest distances (F1, F2)
+  #if 0
+  // Cheat and sort out only F1
+  d1 = min(d1, d2);
+  d1.xy = min(d1.xy, d1.wz);
+  d1.x = min(d1.x, d1.y);
+  return vec2(sqrt(d1.x));
+  #else
+  // Do it right and sort out both F1 and F2
+  vec4 d = min(d1, d2); // F1 is now in d
+  d2 = max(d1, d2); // Make sure we keep all candidates for F2
+  d.xy = d.x < d.y ? d.xy : d.yx; // Swap smallest to d.x
+  d.xz = d.x < d.z ? d.xz : d.zx;
+  d.xw = d.x < d.w ? d.xw : d.wx; // F1 is now in d.x
+  d.yzw = min(d.yzw, d2.yzw); // F2 now not in d2.yzw
+  d.y = min(d.y, d.z); // nor in d.z
+  d.y = min(d.y, d.w); // nor in d.w
+  d.y = min(d.y, d2.x); // F2 is now in d.y
+  return sqrt(d.xy); // F1 and F2
+  #endif
+}
 
-  for (int i = -1; i <= 1; i++) {
-    for (int j = -1; j <= 1; j++) {
-      for (int k = -1; k <= 1; k++) {
-        for (int l = -1; l <= 1; l++) {
-          vec4 offset = vec4(i, j, k, l);
-          vec4 position = Pi + offset;
-          vec4 feature = hash44(position);
-          vec4 diff = offset + feature - Pf;
-          float dist = dot(diff, diff);
+vec2 cellularFbm(vec3 v, int octaves) {
+  float f = 0.0;
+  float amplitude = 0.5;
+  float frequency = 1.0;
 
-          if (
-            dist <
-            F1 // If this distance is smaller than the current F1
-          ) {
-            F2 = F1; // then update F2 to be the old F1
-            F1 = dist; // and update F1 to be the new smallest distance
-          } else if (
-            dist <
-            F2 // Otherwise, if this distance is smaller than the current F2
-          ) {
-            F2 = dist; // then update F2 to be the new second smallest distance
-          }
-        }
-      }
-    }
+  for (int i = 0; i < octaves; i++) {
+    f += amplitude * cellular2x2x2(v * frequency).x;
+    frequency *= 2.0;
+    amplitude *= 0.5;
   }
 
-  // Compute the final cellular noise value
-  return (F1 + F2) * 0.5;
+  return vec2(f, 1.0);
 }
 
 float remap(float value, float inputMin, float inputMax, float outputMin, float outputMax) {
@@ -209,60 +263,76 @@ bool intersectRayWithAABB(vec3 rayOrigin, vec3 rayDirection, vec3 aabbMin, vec3 
   return tMax >= tMin && tMax >= 0.0;
 }
 
+float beer(float d) {
+  return exp(-d);
+}
+
+float heightMap(float h) {
+  return mix(1.0, (1.0 - beer(1.0 * h)) * beer(4.0 * h), heightMapFactor);
+}
+
 float calculateDensity(vec3 position, mat4 inverseCloudsMatrix) {
   vec3 localPosition = (inverseCloudsMatrix * vec4(position, 1.0)).xyz;
-  vec3 centeredPosition = localPosition - area_center;
-  vec3 normalizedPosition = (centeredPosition + area_size * 0.5) / area_size;
-
-  if (
-    normalizedPosition.x < 0.0 ||
-    normalizedPosition.x > 1.0 ||
-    normalizedPosition.y < 0.0 ||
-    normalizedPosition.y > 1.0 ||
-    normalizedPosition.z < 0.0 ||
-    normalizedPosition.z > 1.0
-  ) {
-    return 0.0;
-  }
+  // vec3 centeredPosition = localPosition - area_center;
+  vec3 normalizedPosition = (localPosition + area_size * 0.5) / area_size;
+  float heightMapValue = heightMap(normalizedPosition.y);
+  vec2 weatherMapCoords = normalizedPosition.xz;
 
   //正規化したpositionの高さを取得
-  float p_h = normalizedPosition.y;
+  // float p_h = normalizedPosition.y;
+  // float shape_noise = snoise(vec4(weatherMapCoords * 2.0, 1.0, 1.0));
+  // vec4 wc = texture2D(weatherMap, weatherMapCoords);
 
-  vec2 weatherMapCoords = normalizedPosition.xz;
-  //   float v = snoise(vec4(weatherMapCoords * 2.0, 1.0, 1.0));
-  //   vec4 wc = texture2D(weatherMap, weatherMapCoords);
-
-  // Weather Map Coverage(雲の生成範囲)を計算
-  //   float WM_c = max(wc.x, clamp(g_c - 0.5, 0.0, 1.0) * wc.y * 2.0);
-
-  //雲の下側の形状を計算。下側の値をremapで0.0から1.0に持ち上げている
-  //   float SR_b = clamp(remap(p_h, 0.0, 0.07, 0.0, 1.0), 0.0, 1.0);
-  //   float SR_t = clamp(remap(p_h, wc.z * 0.2, wc.z, 1.0, 0.0), 0.0, 1.0);
-  //Shape-Altering 雲の形状を高さによって変化させる関数
-  //下部を大きく、上部を小さくするイメージ
-  //   float SA = SR_b * SR_t;
-
-  //下部の密度(不透明度)を計算。下部の値をremapで0.0から1.0に持ち上げている
-  //   float DR_b = p_h * clamp(remap(p_h, 0.0, 0.15, 0.0, 1.0), 0.0, 1.0);
-  //上部の密度(不透明度)を計算。上部の値をremapで1.0から0.0に持ち下げている
-  //   float DR_t = clamp(remap(p_h, 0.9, 1.0, 1.0, 0.0), 0.0, 1.0);
-  //Density-Altering 雲の密度を高さによって変化させる関数
-  //下部の密度を大きく、上部の密度を小さくするイメージ
-  //   float DA = g_d * DR_b * DR_t * wc.w * 2.0;
-  //   float SN = clamp(remap(shape_noise * SA, 1.0 - g_c * WM_c, 1.0, 0.0, 1.0), 0.0, 1.0) * DA;
-
-  //   float d = clamp(remap(SN_nd, DN_mod, 0.0, 0.0, 1.0)) * DA;
-  float scale = 2.0;
+  float scale = 1.0;
   vec4 coord = vec4(
-    weatherMapCoords.x * scale,
-    normalizedPosition.y * scale,
-    weatherMapCoords.y * scale,
-    time * 0.1
+    weatherMapCoords.x,
+    normalizedPosition.y * 0.5,
+    weatherMapCoords.y,
+    time * 0.05
   );
-  float perlin = clamp(snoise(coord), 0.0, 1.0);
 
-  return perlin; //SN;
-  //   return WM_c;
+  float noise = clamp(snoise(coord * scale), 0.0, 1.0);
+  // float fbm = dot(vec3(noise), normalize(noiseWeights));
+
+  float shape0 = cellular2x2x2(coord.xyz * 1.0).x;
+  float shape1 = cellular2x2x2(coord.xyz * 4.0).x;
+  float shape2 = cellular2x2x2(coord.xyz * 30.0).x;
+
+  float detail0 = cellular2x2x2(coord.xyz * 10.0).x;
+  float detail2 = cellular2x2x2(coord.xyz * 20.0).x;
+
+  float shapefbm = clamp(pow(snoiseFbm(coord, 3), 3.0) * 50.0, 0.0, 1.0);
+  float detailfbm =
+    1.0 - clamp(clamp(pow(cellularFbm(coord.xyz * 2.0, 4).x, 5.0), 0.0, 1.0) * 50.0, 0.0, 1.0);
+  float shape = mix(shapefbm, detailfbm, 0.95);
+
+  // shapefbm = shapefbm * heightMapValue;
+  // shapefbm = dot(vec3(shapefbm), normalize(noiseWeights)) * heightMapValue;
+  // detailfbm = dot(vec3(detailfbm), normalize(detailWeights)) * (1.0 - heightMapValue);
+
+  // float cloudDensity = shapefbm + 10.0 * 0.1;
+
+  float density = shape; //cloudDensity - detailfbm * pow(1.0 - shapefbm, 3.0) * 2.0;
+  return density;
+}
+
+float maxComponent(vec3 vec) {
+  return max(max(vec.x, vec.y), vec.z);
+}
+float minComponent(vec3 vec) {
+  return min(min(vec.x, vec.y), vec.z);
+}
+
+vec2 slabs(vec3 p1, vec3 p2, vec3 rayPos, vec3 invRayDir) {
+  vec3 t1 = (p1 - rayPos) * invRayDir;
+  vec3 t2 = (p2 - rayPos) * invRayDir;
+  return vec2(maxComponent(min(t1, t2)), minComponent(max(t1, t2)));
+}
+
+vec2 rayBox(vec3 boundsMin, vec3 boundsMax, vec3 rayPos, vec3 invRayDir) {
+  vec2 slabD = slabs(boundsMin, boundsMax, rayPos, invRayDir);
+  float toBox = max(0.0, slabD.x);
+  return vec2(toBox, max(0.0, slabD.y - toBox));
 }
 
 void main(void ) {
@@ -314,21 +384,38 @@ void main(void ) {
   vec3 rayDirection = normalize(worldSpace - cameraPosition);
   vec3 rayOrigin = cameraPosition;
 
-  bool flag = intersectRayWithAABB(rayOrigin, rayDirection, areaMin, areaMax);
-  if (flag) {
-    float opacity = 0.0;
-    for (float t = 0.0; t < 20.0; t += stepSize) {
-      vec3 currentPos = rayOrigin + t * rayDirection;
+  vec3 boundsMin = areaMin;
+  vec3 boundsMax = areaMax;
+  vec3 D = rayDirection;
 
-      float density = calculateDensity(currentPos, inverseCloudsMatrix);
-      if (density == 0.0) continue;
+  vec2 rayToBox = rayBox(boundsMin, boundsMax, cameraPosition, 1.0 / D);
 
-      opacity += density * stepSize;
-      vec3 stepColor = vec3(density);
-      vec3 blendedColor = stepColor * stepSize * 3.0; // * c.xyz * opacity;
-      c.xyz += blendedColor;
-      if (opacity >= 1.0) break;
-    }
+  if (rayToBox.y == 0.0) {
+    gl_FragColor = c;
+    return;
+  }
+
+  // vec3 boxHit = cameraPosition + D * rayToBox.x;
+  // float density = calculateDensity(boxHit, inverseCloudsMatrix);
+  // vec3 stepColor = vec3(density);
+  // c.xyz = stepColor;
+
+  // 各レイのステップ数を計算
+  float stepLimit = min(1000.0 - rayToBox.x, rayToBox.y);
+  float stepSize = 0.03;
+  float opacity = 0.0;
+
+  for (float t = 0.0; t < stepLimit; t += stepSize) {
+    vec3 currentPos = cameraPosition + D * (rayToBox.x + t);
+
+    float density = calculateDensity(currentPos, inverseCloudsMatrix);
+    if (density <= 0.0) continue;
+
+    opacity += density * stepSize;
+    vec3 stepColor = vec3(density);
+    vec3 blendedColor = stepColor * stepSize;
+    c.xyz += blendedColor;
+    if (opacity >= 0.99) break;
   }
 
   //   c.w = 1.0;
