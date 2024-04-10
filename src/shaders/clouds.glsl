@@ -13,21 +13,30 @@ uniform mat4x4 cameraMatrix;
 uniform mat4x4 projectionMatrix;
 uniform float time;
 // uniform vec3 lightDirection;
+uniform int lightSteps;
+uniform float cloudsAreaWidth;
+uniform float cloudsAreaDepth;
+uniform float lightDirX;
+uniform float lightDirY;
+uniform float lightDirZ;
 
+const float cloudsAreaHeight = 0.5;
+// const float cloudsAreaWidth = 1.0;
+// const float cloudsAreaDepth = 1.0;
 // const float stepSize = 0.01;
 const vec3 area_center = vec3(0.0, 0.0, 0.0);
-const vec3 area_size = vec3(1.0, 0.5, 1.0);
+// const vec3 area_size = vec3(1.0, 0.5, 1.0);
 // const float g_c = 0.75; //
 // const float g_d = 1.0; //雲のグローバルな不透明度
 const float heightMapFactor = 0.95;
 // const vec3 noiseWeights = vec3(10.5, 7.25, 2.125);
 // const vec3 detailWeights = vec3(0.99, 0.21, 0.15);
 // const float volumeOffset = 2.5;
-const int marchSteps = 3;
+// const int lightSteps = 5;
 const float transmitThreshold = 0.65;
 const float outScatterMultiplier = 0.5;
 const float inScatterMultiplier = 0.25;
-const vec3 lightDirection = vec3(0.3, 1.0, -0.1);
+// const vec3 lightDirection = vec3(0.3, 1.0, -0.1);
 const float rayOffset = 0.01;
 
 vec4 mod289(vec4 x) {
@@ -279,37 +288,34 @@ float heightMap(float h) {
   return mix(1.0, (1.0 - beer(1.0 * h)) * beer(4.0 * h), heightMapFactor);
 }
 
-vec3 getCloudSpaceCoord(vec3 position) {
+vec3 getCloudAreaCoord(vec3 position) {
   mat4 cloudsMatrix = mat4(
-    vec4(area_size.x, 0.0, 0.0, 0.0),
-    vec4(0.0, area_size.y, 0.0, 0.0),
-    vec4(0.0, 0.0, area_size.z, 0.0),
+    vec4(cloudsAreaWidth, 0.0, 0.0, 0.0),
+    vec4(0.0, cloudsAreaWidth, 0.0, 0.0),
+    vec4(0.0, 0.0, cloudsAreaDepth, 0.0),
     vec4(area_center, 1.0)
   );
   mat4 inverseCloudsMatrix = inverse(cloudsMatrix);
 
   vec3 localPosition = (inverseCloudsMatrix * vec4(position, 1.0)).xyz;
   // vec3 centeredPosition = localPosition - area_center;
-  vec3 normalizedPosition = (localPosition + area_size * 0.5) / area_size;
-  // float heightMapValue = heightMap(normalizedPosition.y);
+  vec3 cloudsArea = vec3(cloudsAreaWidth, cloudsAreaHeight, cloudsAreaDepth);
+  vec3 normalizedPosition = (localPosition + cloudsArea * 0.5) / cloudsArea;
+  // normalizedPosition.y = heightMap(normalizedPosition.y);
   // vec2 weatherMapCoords = normalizedPosition.xz;
   return normalizedPosition;
 }
 
-float calculateDensity(vec3 position) {
-  // mat4 cloudsMatrix = mat4(
-  //   vec4(area_size.x, 0.0, 0.0, 0.0),
-  //   vec4(0.0, area_size.y, 0.0, 0.0),
-  //   vec4(0.0, 0.0, area_size.z, 0.0),
-  //   vec4(area_center, 1.0)
-  // );
-  // mat4 inverseCloudsMatrix = inverse(cloudsMatrix);
+vec3 getCloudsAreaMin() {
+  return area_center - vec3(cloudsAreaWidth, cloudsAreaHeight, cloudsAreaDepth) * 0.5;
+}
 
-  // vec3 localPosition = (inverseCloudsMatrix * vec4(position, 1.0)).xyz;
-  // vec3 normalizedPosition = (localPosition + area_size * 0.5) / area_size;
-  // float heightMapValue = heightMap(normalizedPosition.y);
-  // vec2 weatherMapCoords = normalizedPosition.xz;
-  vec3 normalizedPosition = getCloudSpaceCoord(position);
+vec3 getCloudsAreaMax() {
+  return area_center + vec3(cloudsAreaWidth, cloudsAreaHeight, cloudsAreaDepth) * 0.5;
+}
+
+float calculateDensity(vec3 position) {
+  vec3 normalizedPosition = getCloudAreaCoord(position);
 
   //正規化したpositionの高さを取得
   // float p_h = normalizedPosition.y;
@@ -368,20 +374,20 @@ vec2 rayBox(vec3 boundsMin, vec3 boundsMax, vec3 rayPos, vec3 invRayDir) {
 }
 
 float lightmarch(vec3 position) {
-  vec3 L = normalize(lightDirection);
+  vec3 L = normalize(vec3(lightDirX, lightDirY, lightDirZ));
 
-  vec3 areaMin = area_center - vec3(area_size.x, area_size.y, area_size.z) * 0.5;
-  vec3 areaMax = area_center + vec3(area_size.x, area_size.y, area_size.z) * 0.5;
+  vec3 areaMin = getCloudsAreaMin();
+  vec3 areaMax = getCloudsAreaMax();
   vec3 boundsMin = areaMin;
   vec3 boundsMax = areaMax;
 
   vec2 rayToBox = rayBox(boundsMin, boundsMax, position, 1.0 / L);
-  float stepSize = rayToBox.y / float(marchSteps);
+  float stepSize = rayToBox.y / float(lightSteps);
 
   float density = 0.0;
   vec3 pos = position;
 
-  for (int i = 0; i < marchSteps; i++) {
+  for (int i = 0; i < lightSteps; i++) {
     pos += L * stepSize;
     density += max(0.0, calculateDensity(pos) * stepSize * 5.0);
   }
@@ -393,8 +399,8 @@ float lightmarch(vec3 position) {
 }
 
 void main(void ) {
-  vec3 areaMin = area_center - vec3(area_size.x, area_size.y, area_size.z) * 0.5;
-  vec3 areaMax = area_center + vec3(area_size.x, area_size.y, area_size.z) * 0.5;
+  vec3 areaMin = getCloudsAreaMin();
+  vec3 areaMax = getCloudsAreaMax();
 
   vec4 cameraImage = texture2D(textureSampler, vUV);
 
