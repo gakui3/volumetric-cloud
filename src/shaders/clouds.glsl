@@ -5,22 +5,30 @@ varying vec2 vUV;
 
 uniform sampler2D textureSampler;
 uniform sampler2D weatherMap;
-uniform float time;
+uniform sampler2D blueNoiseTex;
 
 uniform vec2 screenSize;
 uniform vec3 cameraPosition;
 uniform mat4x4 cameraMatrix;
 uniform mat4x4 projectionMatrix;
+uniform float time;
+// uniform vec3 lightDirection;
 
 // const float stepSize = 0.01;
 const vec3 area_center = vec3(0.0, 0.0, 0.0);
 const vec3 area_size = vec3(1.0, 0.5, 1.0);
-const float g_c = 0.75; //
-const float g_d = 1.0; //雲のグローバルな不透明度
+// const float g_c = 0.75; //
+// const float g_d = 1.0; //雲のグローバルな不透明度
 const float heightMapFactor = 0.95;
-const vec3 noiseWeights = vec3(10.5, 7.25, 2.125);
-const vec3 detailWeights = vec3(0.99, 0.21, 0.15);
-const float volumeOffset = 2.5;
+// const vec3 noiseWeights = vec3(10.5, 7.25, 2.125);
+// const vec3 detailWeights = vec3(0.99, 0.21, 0.15);
+// const float volumeOffset = 2.5;
+const int marchSteps = 3;
+const float transmitThreshold = 0.65;
+const float outScatterMultiplier = 0.5;
+const float inScatterMultiplier = 0.25;
+const vec3 lightDirection = vec3(0.3, 1.0, -0.1);
+const float rayOffset = 0.01;
 
 vec4 mod289(vec4 x) {
   return x - floor(x * (1.0 / 289.0)) * 289.0;
@@ -271,12 +279,37 @@ float heightMap(float h) {
   return mix(1.0, (1.0 - beer(1.0 * h)) * beer(4.0 * h), heightMapFactor);
 }
 
-float calculateDensity(vec3 position, mat4 inverseCloudsMatrix) {
+vec3 getCloudSpaceCoord(vec3 position) {
+  mat4 cloudsMatrix = mat4(
+    vec4(area_size.x, 0.0, 0.0, 0.0),
+    vec4(0.0, area_size.y, 0.0, 0.0),
+    vec4(0.0, 0.0, area_size.z, 0.0),
+    vec4(area_center, 1.0)
+  );
+  mat4 inverseCloudsMatrix = inverse(cloudsMatrix);
+
   vec3 localPosition = (inverseCloudsMatrix * vec4(position, 1.0)).xyz;
   // vec3 centeredPosition = localPosition - area_center;
   vec3 normalizedPosition = (localPosition + area_size * 0.5) / area_size;
-  float heightMapValue = heightMap(normalizedPosition.y);
-  vec2 weatherMapCoords = normalizedPosition.xz;
+  // float heightMapValue = heightMap(normalizedPosition.y);
+  // vec2 weatherMapCoords = normalizedPosition.xz;
+  return normalizedPosition;
+}
+
+float calculateDensity(vec3 position) {
+  // mat4 cloudsMatrix = mat4(
+  //   vec4(area_size.x, 0.0, 0.0, 0.0),
+  //   vec4(0.0, area_size.y, 0.0, 0.0),
+  //   vec4(0.0, 0.0, area_size.z, 0.0),
+  //   vec4(area_center, 1.0)
+  // );
+  // mat4 inverseCloudsMatrix = inverse(cloudsMatrix);
+
+  // vec3 localPosition = (inverseCloudsMatrix * vec4(position, 1.0)).xyz;
+  // vec3 normalizedPosition = (localPosition + area_size * 0.5) / area_size;
+  // float heightMapValue = heightMap(normalizedPosition.y);
+  // vec2 weatherMapCoords = normalizedPosition.xz;
+  vec3 normalizedPosition = getCloudSpaceCoord(position);
 
   //正規化したpositionの高さを取得
   // float p_h = normalizedPosition.y;
@@ -285,17 +318,17 @@ float calculateDensity(vec3 position, mat4 inverseCloudsMatrix) {
 
   float scale = 1.0;
   vec4 coord = vec4(
-    weatherMapCoords.x,
+    normalizedPosition.x + time * 0.025,
     normalizedPosition.y * 0.5,
-    weatherMapCoords.y,
-    time * 0.05
+    normalizedPosition.z,
+    1.0
   );
 
   float noise = clamp(snoise(coord * scale), 0.0, 1.0);
   // float fbm = dot(vec3(noise), normalize(noiseWeights));
 
-  float shape0 = cellular2x2x2(coord.xyz * 1.0).x;
-  float shape1 = cellular2x2x2(coord.xyz * 4.0).x;
+  float shape0 = cellular2x2x2(coord.xyz * 2.0).x;
+  float shape1 = cellular2x2x2(coord.xyz * 10.0).x;
   float shape2 = cellular2x2x2(coord.xyz * 30.0).x;
 
   float detail0 = cellular2x2x2(coord.xyz * 10.0).x;
@@ -305,14 +338,13 @@ float calculateDensity(vec3 position, mat4 inverseCloudsMatrix) {
   float detailfbm =
     1.0 - clamp(clamp(pow(cellularFbm(coord.xyz * 2.0, 4).x, 5.0), 0.0, 1.0) * 50.0, 0.0, 1.0);
   float shape = mix(shapefbm, detailfbm, 0.95);
-
   // shapefbm = shapefbm * heightMapValue;
   // shapefbm = dot(vec3(shapefbm), normalize(noiseWeights)) * heightMapValue;
   // detailfbm = dot(vec3(detailfbm), normalize(detailWeights)) * (1.0 - heightMapValue);
 
   // float cloudDensity = shapefbm + 10.0 * 0.1;
 
-  float density = shape; //cloudDensity - detailfbm * pow(1.0 - shapefbm, 3.0) * 2.0;
+  float density = pow(shape, 2.0) * 5.0; //shape - detailfbm * pow(1.0 - shapefbm, 3.0) * 2.0;
   return density;
 }
 
@@ -335,20 +367,36 @@ vec2 rayBox(vec3 boundsMin, vec3 boundsMax, vec3 rayPos, vec3 invRayDir) {
   return vec2(toBox, max(0.0, slabD.y - toBox));
 }
 
+float lightmarch(vec3 position) {
+  vec3 L = normalize(lightDirection);
+
+  vec3 areaMin = area_center - vec3(area_size.x, area_size.y, area_size.z) * 0.5;
+  vec3 areaMax = area_center + vec3(area_size.x, area_size.y, area_size.z) * 0.5;
+  vec3 boundsMin = areaMin;
+  vec3 boundsMax = areaMax;
+
+  vec2 rayToBox = rayBox(boundsMin, boundsMax, position, 1.0 / L);
+  float stepSize = rayToBox.y / float(marchSteps);
+
+  float density = 0.0;
+  vec3 pos = position;
+
+  for (int i = 0; i < marchSteps; i++) {
+    pos += L * stepSize;
+    density += max(0.0, calculateDensity(pos) * stepSize * 5.0);
+  }
+
+  // float transmit = beer(density * (1.0 - outScatterMultiplier));
+  float transmit = beer(density);
+  // float transmit = density;
+  return transmit;
+}
+
 void main(void ) {
   vec3 areaMin = area_center - vec3(area_size.x, area_size.y, area_size.z) * 0.5;
   vec3 areaMax = area_center + vec3(area_size.x, area_size.y, area_size.z) * 0.5;
 
-  mat4 cloudsMatrix = mat4(
-    vec4(area_size.x, 0.0, 0.0, 0.0),
-    vec4(0.0, area_size.y, 0.0, 0.0),
-    vec4(0.0, 0.0, area_size.z, 0.0),
-    vec4(area_center, 1.0)
-  );
-
-  mat4 inverseCloudsMatrix = inverse(cloudsMatrix);
-
-  vec4 c = texture2D(textureSampler, vUV);
+  vec4 cameraImage = texture2D(textureSampler, vUV);
 
   float t = 1.0;
   float scale = 2.0;
@@ -390,8 +438,8 @@ void main(void ) {
 
   vec2 rayToBox = rayBox(boundsMin, boundsMax, cameraPosition, 1.0 / D);
 
-  if (rayToBox.y == 0.0) {
-    gl_FragColor = c;
+  if (rayToBox.y <= 0.01) {
+    gl_FragColor = cameraImage;
     return;
   }
 
@@ -400,24 +448,29 @@ void main(void ) {
   // vec3 stepColor = vec3(density);
   // c.xyz = stepColor;
 
+  float randomOffset = snoise(vec4(vUV * 500.0, 0.0, 1.0));
+  // float randomOffset = texture2D(blueNoiseTex, vUV * 100000.0).y;
+  float offset = randomOffset * 0.01;
+
   // 各レイのステップ数を計算
-  float stepLimit = min(1000.0 - rayToBox.x, rayToBox.y);
-  float stepSize = 0.03;
-  float opacity = 0.0;
+  float stepLimit = rayToBox.y;
+  float stepSize = 0.05;
+  float transmit = 1.0;
+  vec3 I = vec3(0.0);
 
   for (float t = 0.0; t < stepLimit; t += stepSize) {
     vec3 currentPos = cameraPosition + D * (rayToBox.x + t);
 
-    float density = calculateDensity(currentPos, inverseCloudsMatrix);
-    if (density <= 0.0) continue;
+    float density = calculateDensity(currentPos) * stepSize;
 
-    opacity += density * stepSize;
-    vec3 stepColor = vec3(density);
-    vec3 blendedColor = stepColor * stepSize;
-    c.xyz += blendedColor;
-    if (opacity >= 0.99) break;
+    if (density > 0.0) {
+      I += density * transmit * lightmarch(currentPos);
+      transmit *= beer(density);
+    }
   }
 
-  //   c.w = 1.0;
-  gl_FragColor = c;
+  vec3 c = I + cameraImage.xyz * transmit;
+  // vec3 c = I * 2.0;
+
+  gl_FragColor = vec4(c, 1.0);
 }
