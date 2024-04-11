@@ -7,7 +7,6 @@ import quadFrag from './shaders/quadFrag.glsl?raw';
 import debug from './shaders/debug.glsl?raw';
 import clouds from './shaders/clouds.glsl?raw';
 
-// import testimg from '/testimg.png';
 // import blueNoiseImg from '/BlueNoise.png';
 
 let time = 0;
@@ -21,8 +20,8 @@ document.body.appendChild(stats.dom);
 const gui = new GUI();
 const params = {
   lightTotalSteps: 4,
-  cloudsAreaWidth: 2.0,
-  cloudsAreaDepth: 2.0,
+  cloudsAreaWidth: 2.5,
+  cloudsAreaDepth: 2.5,
   lightDirX: 0.1,
   lightDirY: 1.0,
   lightDirZ: -0.1,
@@ -34,10 +33,13 @@ const params = {
   perlinNoiseAmplitude: 0.5,
   perlinNoiseFrequency: 2.0,
   cloudsDenscityOffset: 0.0,
+  forwardScatter: 0.55,
+  backwardScatter: 0.399,
+  brightness: 1.0,
 };
 
-gui.add(params, 'cloudsAreaWidth', 1.0, 4.0, 0.2);
-gui.add(params, 'cloudsAreaDepth', 1.0, 4.0, 0.2);
+// gui.add(params, 'cloudsAreaWidth', 1.0, 4.0, 0.2);
+// gui.add(params, 'cloudsAreaDepth', 1.0, 4.0, 0.2);
 
 const lightSettings = gui.addFolder('Light');
 lightSettings.add(params, 'lightDirX', -1.0, 1.0, 0.1);
@@ -46,6 +48,9 @@ lightSettings.add(params, 'lightDirZ', -1.0, 1.0, 0.1);
 lightSettings.add(params, 'lightTotalSteps', 0, 8, 1);
 lightSettings.addColor(params, 'lightColor');
 lightSettings.add(params, 'shadowIntensity', 0.0, 10.0, 0.1);
+lightSettings.add(params, 'forwardScatter', 0.0, 1.0, 0.01);
+lightSettings.add(params, 'backwardScatter', 0.0, 1.0, 0.01);
+lightSettings.add(params, 'brightness', 0.0, 2.0, 0.1);
 
 const shapeSettings = gui.addFolder('Shape');
 shapeSettings.add(params, 'shapeStepSize', 0.01, 0.1, 0.01);
@@ -63,13 +68,11 @@ const camera = new BABYLON.ArcRotateCamera(
   'Camera',
   -1.57,
   1.57,
-  3,
+  3.5,
   new BABYLON.Vector3(0, 0, 0),
   scene
 );
-// camera.setPosition(new BABYLON.Vector3(0, 0, 10));
 camera.inertia = 0.3;
-// camera.wheelPrecision = 100;
 camera.attachControl(canvas, true);
 
 const light = new BABYLON.DirectionalLight('light1', new BABYLON.Vector3(0.1, 1, -0.1), scene);
@@ -125,6 +128,9 @@ const cloudsPP = new BABYLON.PostProcess(
     // 'perlinNoiseAmplitude',
     // 'perlinNoiseFrequency',
     'cloudsDenscityOffset',
+    'forwardScatter',
+    'backwardScatter',
+    'brightness',
   ],
   ['weatherMap', 'blueNoiseTex'],
   1.0,
@@ -157,6 +163,9 @@ cloudsPP.onApply = function (effect) {
   // effect.setFloat('perlinNoiseAmplitude', params.perlinNoiseAmplitude);
   // effect.setFloat('perlinNoiseFrequency', params.perlinNoiseFrequency);
   effect.setFloat('cloudsDenscityOffset', params.cloudsDenscityOffset);
+  effect.setFloat('forwardScatter', params.forwardScatter);
+  effect.setFloat('backwardScatter', params.backwardScatter);
+  effect.setFloat('brightness', params.brightness);
 };
 
 // weathre mapをデバッグ用に表示するための処理

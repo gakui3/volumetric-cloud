@@ -12,7 +12,6 @@ uniform vec3 cameraPosition;
 uniform mat4x4 cameraMatrix;
 uniform mat4x4 projectionMatrix;
 uniform float time;
-// uniform vec3 lightDirection;
 uniform int lightSteps;
 uniform float cloudsAreaWidth;
 uniform float cloudsAreaDepth;
@@ -27,24 +26,18 @@ uniform float cellularNoiseFrequency;
 uniform float perlinNoiseAmplitude;
 uniform float perlinNoiseFrequency;
 uniform float cloudsDenscityOffset;
+uniform float forwardScatter;
+uniform float backwardScatter;
+uniform float brightness;
 
 const float cloudsAreaHeight = 0.75;
-// const float cloudsAreaWidth = 1.0;
-// const float cloudsAreaDepth = 1.0;
-// const float stepSize = 0.01;
 const vec3 area_center = vec3(0.0, 0.0, 0.0);
-// const vec3 area_size = vec3(1.0, 0.5, 1.0);
-// const float g_c = 0.75; //
-// const float g_d = 1.0; //雲のグローバルな不透明度
 const float heightMapFactor = 0.95;
 // const vec3 noiseWeights = vec3(10.5, 7.25, 2.125);
 // const vec3 detailWeights = vec3(0.99, 0.21, 0.15);
-// const float volumeOffset = 2.5;
-// const int lightSteps = 5;
 const float transmitThreshold = 0.65;
 const float outScatterMultiplier = 0.5;
 const float inScatterMultiplier = 0.25;
-// const vec3 lightDirection = vec3(0.3, 1.0, -0.1);
 const float rayOffset = 0.01;
 
 vec4 mod289(vec4 x) {
@@ -387,10 +380,19 @@ float lightmarch(vec3 position) {
     density += max(0.0, calculateDensity(pos) * stepSize * shadowIntensity);
   }
 
-  // float transmit = beer(density * (1.0 - outScatterMultiplier));
   float transmit = beer(density);
-  // float transmit = density;
   return transmit;
+}
+
+float henyeyGreenstein(float g, float angle) {
+  return (1.0 - pow(g, 2.0)) / (4.0 * 3.14159 * pow(1.0 + pow(g, 2.0) - 2.0 * g * angle, 1.5));
+}
+
+float hgScatter(float angle) {
+  float scatterAverage =
+    (henyeyGreenstein(forwardScatter, angle) + henyeyGreenstein(-backwardScatter, angle)) / 2.0;
+  float sunPosModifier = 1.0;
+  return brightness * sunPosModifier + scatterAverage * 2.0;
 }
 
 void main(void ) {
@@ -454,13 +456,17 @@ void main(void ) {
   float transmit = 1.0;
   vec3 I = vec3(0.0);
 
+  // Henyey-Greenstein scatter
+  vec3 L = normalize(vec3(lightDirX, lightDirY, lightDirZ));
+  float scatter = hgScatter(dot(D, L));
+
   for (float t = 0.0; t < stepLimit; t += shapeStepSize) {
     vec3 currentPos = cameraPosition + D * (rayToBox.x + t);
 
     float density = calculateDensity(currentPos) * shapeStepSize;
 
     if (density > 0.0) {
-      I += (density + cloudsDenscityOffset) * transmit * lightmarch(currentPos);
+      I += (density + cloudsDenscityOffset) * transmit * lightmarch(currentPos) * scatter;
       transmit *= beer(density + cloudsDenscityOffset);
     }
   }
