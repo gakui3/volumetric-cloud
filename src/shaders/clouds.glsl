@@ -19,8 +19,16 @@ uniform float cloudsAreaDepth;
 uniform float lightDirX;
 uniform float lightDirY;
 uniform float lightDirZ;
+uniform float shapeStepSize;
+uniform vec3 lightColor;
+uniform float shadowIntensity;
+uniform float cellularNoiseAmplitude;
+uniform float cellularNoiseFrequency;
+uniform float perlinNoiseAmplitude;
+uniform float perlinNoiseFrequency;
+uniform float cloudsDenscityOffset;
 
-const float cloudsAreaHeight = 0.5;
+const float cloudsAreaHeight = 0.75;
 // const float cloudsAreaWidth = 1.0;
 // const float cloudsAreaDepth = 1.0;
 // const float stepSize = 0.01;
@@ -182,8 +190,8 @@ float snoiseFbm(vec4 v, int octaves) {
 
   for (int i = 0; i < octaves; i++) {
     f += amplitude * snoise(frequency * v);
-    frequency *= 2.0;
-    amplitude *= 0.5;
+    frequency *= perlinNoiseFrequency;
+    amplitude *= perlinNoiseAmplitude;
   }
 
   return f;
@@ -255,8 +263,8 @@ vec2 cellularFbm(vec3 v, int octaves) {
 
   for (int i = 0; i < octaves; i++) {
     f += amplitude * cellular2x2x2(v * frequency).x;
-    frequency *= 2.0;
-    amplitude *= 0.5;
+    frequency *= cellularNoiseFrequency;
+    amplitude *= cellularNoiseAmplitude;
   }
 
   return vec2(f, 1.0);
@@ -291,7 +299,7 @@ float heightMap(float h) {
 vec3 getCloudAreaCoord(vec3 position) {
   mat4 cloudsMatrix = mat4(
     vec4(cloudsAreaWidth, 0.0, 0.0, 0.0),
-    vec4(0.0, cloudsAreaWidth, 0.0, 0.0),
+    vec4(0.0, cloudsAreaHeight, 0.0, 0.0),
     vec4(0.0, 0.0, cloudsAreaDepth, 0.0),
     vec4(area_center, 1.0)
   );
@@ -301,8 +309,10 @@ vec3 getCloudAreaCoord(vec3 position) {
   // vec3 centeredPosition = localPosition - area_center;
   vec3 cloudsArea = vec3(cloudsAreaWidth, cloudsAreaHeight, cloudsAreaDepth);
   vec3 normalizedPosition = (localPosition + cloudsArea * 0.5) / cloudsArea;
-  // normalizedPosition.y = heightMap(normalizedPosition.y);
-  // vec2 weatherMapCoords = normalizedPosition.xz;
+  // normalizedPosition.x = fract(normalizedPosition.x * cloudsAreaWidth);
+  // normalizedPosition.z = fract(normalizedPosition.z * cloudsAreaDepth);
+  normalizedPosition.x = normalizedPosition.x * cloudsAreaWidth;
+  normalizedPosition.z = normalizedPosition.z * cloudsAreaDepth;
   return normalizedPosition;
 }
 
@@ -330,27 +340,12 @@ float calculateDensity(vec3 position) {
     1.0
   );
 
-  float noise = clamp(snoise(coord * scale), 0.0, 1.0);
-  // float fbm = dot(vec3(noise), normalize(noiseWeights));
+  // float heightMapValue = heightMap(normalizedPosition.y);
+  // float shapefbm = clamp(pow(snoiseFbm(coord, 4), 5.0) * 100.0, 0.0, 1.0);
+  float detailfbm = 1.0 - clamp(pow(cellularFbm(coord.xyz * 2.0, 4).x, 5.0) * 50.0, 0.0, 1.0);
+  float shape = detailfbm; //mix(shapefbm, detailfbm, cloudsDenscityOffset);
 
-  float shape0 = cellular2x2x2(coord.xyz * 2.0).x;
-  float shape1 = cellular2x2x2(coord.xyz * 10.0).x;
-  float shape2 = cellular2x2x2(coord.xyz * 30.0).x;
-
-  float detail0 = cellular2x2x2(coord.xyz * 10.0).x;
-  float detail2 = cellular2x2x2(coord.xyz * 20.0).x;
-
-  float shapefbm = clamp(pow(snoiseFbm(coord, 3), 3.0) * 50.0, 0.0, 1.0);
-  float detailfbm =
-    1.0 - clamp(clamp(pow(cellularFbm(coord.xyz * 2.0, 4).x, 5.0), 0.0, 1.0) * 50.0, 0.0, 1.0);
-  float shape = mix(shapefbm, detailfbm, 0.95);
-  // shapefbm = shapefbm * heightMapValue;
-  // shapefbm = dot(vec3(shapefbm), normalize(noiseWeights)) * heightMapValue;
-  // detailfbm = dot(vec3(detailfbm), normalize(detailWeights)) * (1.0 - heightMapValue);
-
-  // float cloudDensity = shapefbm + 10.0 * 0.1;
-
-  float density = pow(shape, 2.0) * 5.0; //shape - detailfbm * pow(1.0 - shapefbm, 3.0) * 2.0;
+  float density = pow(shape, 2.0) * 5.0;
   return density;
 }
 
@@ -389,7 +384,7 @@ float lightmarch(vec3 position) {
 
   for (int i = 0; i < lightSteps; i++) {
     pos += L * stepSize;
-    density += max(0.0, calculateDensity(pos) * stepSize * 5.0);
+    density += max(0.0, calculateDensity(pos) * stepSize * shadowIntensity);
   }
 
   // float transmit = beer(density * (1.0 - outScatterMultiplier));
@@ -431,7 +426,7 @@ void main(void ) {
 
   // クリップ空間座標をビュー空間座標に変換
   vec4 viewSpace = inverse(projectionMatrix) * clipSpace;
-  viewSpace = vec4(viewSpace.xy, 1.0, 0.0);
+  viewSpace = vec4(viewSpace.xy, 1.0, 1.0);
 
   // ビュー空間座標をワールド空間座標に変換
   vec3 worldSpace = (inverse(cameraMatrix) * viewSpace).xyz;
@@ -454,29 +449,23 @@ void main(void ) {
   // vec3 stepColor = vec3(density);
   // c.xyz = stepColor;
 
-  float randomOffset = snoise(vec4(vUV * 500.0, 0.0, 1.0));
-  // float randomOffset = texture2D(blueNoiseTex, vUV * 100000.0).y;
-  float offset = randomOffset * 0.01;
-
   // 各レイのステップ数を計算
   float stepLimit = rayToBox.y;
-  float stepSize = 0.05;
   float transmit = 1.0;
   vec3 I = vec3(0.0);
 
-  for (float t = 0.0; t < stepLimit; t += stepSize) {
+  for (float t = 0.0; t < stepLimit; t += shapeStepSize) {
     vec3 currentPos = cameraPosition + D * (rayToBox.x + t);
 
-    float density = calculateDensity(currentPos) * stepSize;
+    float density = calculateDensity(currentPos) * shapeStepSize;
 
     if (density > 0.0) {
-      I += density * transmit * lightmarch(currentPos);
-      transmit *= beer(density);
+      I += (density + cloudsDenscityOffset) * transmit * lightmarch(currentPos);
+      transmit *= beer(density + cloudsDenscityOffset);
     }
   }
 
-  vec3 c = I + cameraImage.xyz * transmit;
-  // vec3 c = I * 2.0;
+  vec3 c = clamp(I, 0.0, 1.0) * lightColor + cameraImage.xyz * transmit;
 
   gl_FragColor = vec4(c, 1.0);
 }

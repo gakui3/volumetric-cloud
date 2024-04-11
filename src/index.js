@@ -7,8 +7,8 @@ import quadFrag from './shaders/quadFrag.glsl?raw';
 import debug from './shaders/debug.glsl?raw';
 import clouds from './shaders/clouds.glsl?raw';
 
-import testimg from '/testimg.png';
-import blueNoiseImg from '/BlueNoise.png';
+// import testimg from '/testimg.png';
+// import blueNoiseImg from '/BlueNoise.png';
 
 let time = 0;
 
@@ -20,20 +20,40 @@ document.body.appendChild(stats.dom);
 // guiの設定
 const gui = new GUI();
 const params = {
-  lightSteps: 4,
-  cloudsAreaWidth: 1.0,
-  cloudsAreaDepth: 1.0,
+  lightTotalSteps: 4,
+  cloudsAreaWidth: 2.0,
+  cloudsAreaDepth: 2.0,
   lightDirX: 0.1,
   lightDirY: 1.0,
   lightDirZ: -0.1,
+  shapeStepSize: 0.05,
+  lightColor: [1.0, 1.0, 1.0],
+  shadowIntensity: 1.8,
+  cellularNoiseAmplitude: 0.5,
+  cellularNoiseFrequency: 2.0,
+  perlinNoiseAmplitude: 0.5,
+  perlinNoiseFrequency: 2.0,
+  cloudsDenscityOffset: 0.0,
 };
-gui.add(params, 'lightSteps', 1, 8, 1);
-const lightDir = gui.addFolder('Light Direction');
-lightDir.add(params, 'lightDirX', -1.0, 1.0, 0.1);
-lightDir.add(params, 'lightDirY', -1.0, 1.0, 0.1);
-lightDir.add(params, 'lightDirZ', -1.0, 1.0, 0.1);
-gui.add(params, 'cloudsAreaWidth', 1.0, 3.0, 0.1);
-gui.add(params, 'cloudsAreaDepth', 1.0, 3.0, 0.1);
+
+gui.add(params, 'cloudsAreaWidth', 1.0, 4.0, 0.2);
+gui.add(params, 'cloudsAreaDepth', 1.0, 4.0, 0.2);
+
+const lightSettings = gui.addFolder('Light');
+lightSettings.add(params, 'lightDirX', -1.0, 1.0, 0.1);
+lightSettings.add(params, 'lightDirY', -1.0, 1.0, 0.1);
+lightSettings.add(params, 'lightDirZ', -1.0, 1.0, 0.1);
+lightSettings.add(params, 'lightTotalSteps', 0, 8, 1);
+lightSettings.addColor(params, 'lightColor');
+lightSettings.add(params, 'shadowIntensity', 0.0, 10.0, 0.1);
+
+const shapeSettings = gui.addFolder('Shape');
+shapeSettings.add(params, 'shapeStepSize', 0.01, 0.1, 0.01);
+shapeSettings.add(params, 'cellularNoiseAmplitude', 0.0, 1.0, 0.1);
+shapeSettings.add(params, 'cellularNoiseFrequency', 0.1, 2.5, 0.1);
+// shapeSettings.add(params, 'perlinNoiseAmplitude', 0.0, 1.0, 0.1);
+// shapeSettings.add(params, 'perlinNoiseFrequency', 0.1, 2.5, 0.1);
+shapeSettings.add(params, 'cloudsDenscityOffset', 0.0, 0.1, 0.001);
 
 const canvas = document.getElementById('renderCanvas');
 const engine = new BABYLON.Engine(canvas);
@@ -43,11 +63,13 @@ const camera = new BABYLON.ArcRotateCamera(
   'Camera',
   -1.57,
   1.57,
-  10,
+  3,
   new BABYLON.Vector3(0, 0, 0),
   scene
 );
 // camera.setPosition(new BABYLON.Vector3(0, 0, 10));
+camera.inertia = 0.3;
+// camera.wheelPrecision = 100;
 camera.attachControl(canvas, true);
 
 const light = new BABYLON.DirectionalLight('light1', new BABYLON.Vector3(0.1, 1, -0.1), scene);
@@ -95,6 +117,14 @@ const cloudsPP = new BABYLON.PostProcess(
     'lightDirX',
     'lightDirY',
     'lightDirZ',
+    'shapeStepSize',
+    'lightColor',
+    'shadowIntensity',
+    'cellularNoiseAmplitude',
+    'cellularNoiseFrequency',
+    // 'perlinNoiseAmplitude',
+    // 'perlinNoiseFrequency',
+    'cloudsDenscityOffset',
   ],
   ['weatherMap', 'blueNoiseTex'],
   1.0,
@@ -110,12 +140,23 @@ cloudsPP.onApply = function (effect) {
   effect.setVector3('cameraPosition', camera.position);
   effect.setMatrix('cameraMatrix', camera.getViewMatrix());
   effect.setMatrix('projectionMatrix', camera.getProjectionMatrix());
-  effect.setInt('lightSteps', params.lightSteps);
+  effect.setInt('lightSteps', params.lightTotalSteps);
   effect.setFloat('cloudsAreaWidth', params.cloudsAreaWidth);
   effect.setFloat('cloudsAreaDepth', params.cloudsAreaDepth);
   effect.setFloat('lightDirX', params.lightDirX);
   effect.setFloat('lightDirY', params.lightDirY);
   effect.setFloat('lightDirZ', params.lightDirZ);
+  effect.setFloat('shapeStepSize', params.shapeStepSize);
+  effect.setVector3(
+    'lightColor',
+    new BABYLON.Vector3(params.lightColor[0], params.lightColor[1], params.lightColor[2])
+  );
+  effect.setFloat('shadowIntensity', params.shadowIntensity);
+  effect.setFloat('cellularNoiseAmplitude', params.cellularNoiseAmplitude);
+  effect.setFloat('cellularNoiseFrequency', params.cellularNoiseFrequency);
+  // effect.setFloat('perlinNoiseAmplitude', params.perlinNoiseAmplitude);
+  // effect.setFloat('perlinNoiseFrequency', params.perlinNoiseFrequency);
+  effect.setFloat('cloudsDenscityOffset', params.cloudsDenscityOffset);
 };
 
 // weathre mapをデバッグ用に表示するための処理
